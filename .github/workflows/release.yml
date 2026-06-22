@@ -5,6 +5,9 @@ on:
     tags:
       - 'v.1.0.*'
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
