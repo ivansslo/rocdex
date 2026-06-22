@@ -185,7 +185,7 @@ class MainActivity : AppCompatActivity() {
         // Step 3: Install Codex CLI if missing
         if (!serverManager.isCodexInstalled()) {
             updateStatus("Installing Codex CLI...")
-            val codexOk = serverManager.installCodexCli { msg -> updateDetail(msg) }
+            val codexOk = serverManager.installCodex { msg -> updateDetail(msg) }
             if (!codexOk) {
                 throw RuntimeException("Failed to install Codex CLI")
             }
@@ -211,27 +211,16 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Checking authentication...")
         if (!serverManager.isLoggedIn()) {
             updateStatus("Authentication required...")
-            // Try auto-login first
-            val autoOk = serverManager.tryAutoLogin()
-            if (!autoOk) {
-                // Use a local password instead of API key
-                updateStatus("Generating local password...")
-                val passFile = File(filesDir, "codexui-password")
-                val localPass = generateLocalPassword()
-                passFile.writeText(localPass)
-                password = localPass
+            // Use local password instead of API key
+            updateStatus("Generating local password...")
+            val passFile = File(filesDir, "codexui-password")
+            val localPass = generateLocalPassword()
+            passFile.writeText(localPass)
+            password = localPass
 
-                // Set up codex login with local token
-                updateStatus("Configuring local access...")
-                serverManager.loginWithApiKey(localPass)
-            } else {
-                // Check if we can find the password
-                val paths = BootstrapInstaller.getPaths(this)
-                val passFile = File(paths.homeDir, ".codex/codexui-password")
-                if (passFile.exists()) {
-                    password = passFile.readText().trim()
-                }
-            }
+            // Set up codex login with local token
+            updateStatus("Configuring local access...")
+            serverManager.loginWithApiKey(localPass)
         }
         updateStatus("Authenticated")
 
