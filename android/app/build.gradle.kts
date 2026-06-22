@@ -10,10 +10,10 @@ android {
     defaultConfig {
         applicationId = "com.rocdex.mobile"
         minSdk = 24
-        // targetSdk 28 allows executing binaries from app data directory.
-        // Android 10+ (targetSdk 29+) enforces W^X which blocks this via SELinux.
+        // targetSdk 33 required for Google Play compliance.
+        
         // Termux (F-Droid) uses the same approach.
-        targetSdk = 28
+        targetSdk = 33
         versionCode = 1
         versionName = "1.0.90"
     }
