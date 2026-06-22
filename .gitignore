@@ -10,5 +10,4 @@ package-lock.json
 .codex/
 .env.local
 
-package.json
 .omx/

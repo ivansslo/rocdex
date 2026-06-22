@@ -1,4 +1,4 @@
-package com.codex.mobile
+package com.rocdex.mobile
 
 import android.content.Intent
 import android.net.Uri
@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loadingOverlay: View
     private lateinit var statusText: TextView
     private lateinit var statusDetail: TextView
+    private lateinit var serverUrlText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var serverManager: CodexServerManager
 
@@ -39,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         loadingOverlay = findViewById(R.id.loadingOverlay)
         statusText = findViewById(R.id.statusText)
         statusDetail = findViewById(R.id.statusDetail)
+        serverUrlText = findViewById(R.id.serverUrlText)
         progressBar = findViewById(R.id.progressBar)
 
         serverManager = CodexServerManager(this)
@@ -274,6 +276,12 @@ class MainActivity : AppCompatActivity() {
             throw RuntimeException("Failed to start server")
         }
 
+        // Show the local server URL
+        val localIp = serverManager.getLocalIpAddress()
+        if (localIp != null) {
+            showServerUrl(localIp, CodexServerManager.SERVER_PORT)
+        }
+
         // Step 9: Wait for ready
         updateStatus("Waiting for server…")
         val ready = serverManager.waitForServer(timeoutMs = 90_000)
@@ -329,6 +337,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── UI helpers ──────────────────────────────────────────────────────────
+
+    private fun showServerUrl(ip: String, port: Int) {
+        runOnUiThread {
+            serverUrlText.text = "🌐 http://$ip:$port/"
+            serverUrlText.visibility = View.VISIBLE
+            statusDetail.text = "Open in browser on your local network"
+            statusDetail.visibility = View.VISIBLE
+        }
+    }
 
     private fun showError(message: String) {
         AlertDialog.Builder(this)

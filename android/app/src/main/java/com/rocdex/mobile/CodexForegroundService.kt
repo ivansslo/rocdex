@@ -1,4 +1,4 @@
-package com.codex.mobile
+package com.rocdex.mobile
 
 import android.app.Notification
 import android.app.NotificationChannel

@@ -1,4 +1,4 @@
-package com.codex.mobile
+package com.rocdex.mobile
 
 import android.content.Context
 import android.util.Log
@@ -163,8 +163,8 @@ class CodexServerManager(private val context: Context) {
             if [ -f "${'$'}CODEX_JS" ]; then
                 rm -f "$prefix/bin/codex"
                 cat > "$prefix/bin/codex" << 'WEOF'
-#!/data/user/0/com.codex.mobile/files/usr/bin/sh
-exec /data/user/0/com.codex.mobile/files/usr/bin/node /data/user/0/com.codex.mobile/files/usr/lib/node_modules/@openai/codex/bin/codex.js "${'$'}@"
+#!/data/user/0/com.rocdex.mobile/files/usr/bin/sh
+exec /data/user/0/com.rocdex.mobile/files/usr/bin/node /data/user/0/com.rocdex.mobile/files/usr/lib/node_modules/@openai/codex/bin/codex.js "${'$'}@"
 WEOF
                 chmod 700 "$prefix/bin/codex"
             fi
@@ -173,8 +173,8 @@ WEOF
             if [ -f "${'$'}NPM_CLI" ]; then
                 rm -f "$prefix/bin/npm"
                 cat > "$prefix/bin/npm" << 'WEOF'
-#!/data/user/0/com.codex.mobile/files/usr/bin/sh
-exec /data/user/0/com.codex.mobile/files/usr/bin/node /data/user/0/com.codex.mobile/files/usr/lib/node_modules/npm/bin/npm-cli.js "${'$'}@"
+#!/data/user/0/com.rocdex.mobile/files/usr/bin/sh
+exec /data/user/0/com.rocdex.mobile/files/usr/bin/node /data/user/0/com.rocdex.mobile/files/usr/lib/node_modules/npm/bin/npm-cli.js "${'$'}@"
 WEOF
                 chmod 700 "$prefix/bin/npm"
             fi
@@ -523,7 +523,7 @@ H3
         val systemctlStub = File(prefix, "bin/systemctl")
         if (!systemctlStub.exists()) {
             systemctlStub.writeText(
-                "#!/data/user/0/com.codex.mobile/files/usr/bin/sh\n" +
+                "#!/data/user/0/com.rocdex.mobile/files/usr/bin/sh\n" +
                     "exit 0\n"
             )
             systemctlStub.setExecutable(true)
@@ -1006,8 +1006,8 @@ H3
         val wrapperCmd = """
             rm -f "$prefix/bin/codex"
             cat > "$prefix/bin/codex" << 'WEOF'
-#!/data/user/0/com.codex.mobile/files/usr/bin/sh
-exec /data/user/0/com.codex.mobile/files/usr/bin/node /data/user/0/com.codex.mobile/files/usr/lib/node_modules/@openai/codex/bin/codex.js "${'$'}@"
+#!/data/user/0/com.rocdex.mobile/files/usr/bin/sh
+exec /data/user/0/com.rocdex.mobile/files/usr/bin/node /data/user/0/com.rocdex.mobile/files/usr/lib/node_modules/@openai/codex/bin/codex.js "${'$'}@"
 WEOF
             chmod 700 "$prefix/bin/codex"
             echo "codex wrapper created"
@@ -1323,7 +1323,9 @@ WEOF
         }
 
         val shell = "${paths.prefixDir}/bin/sh"
-        val command = "exec node $serverScript --port $SERVER_PORT --no-password"
+        val localIp = getLocalIpAddress()
+        val hostFlag = if (localIp != null) " --host 0.0.0.0" else ""
+        val command = "exec node $serverScript --port $SERVER_PORT --no-password$hostFlag"
 
         Log.i(TAG, "Starting server: $command")
 
@@ -1453,6 +1455,30 @@ WEOF
         }
         configFile.writeText(desired)
         Log.i(TAG, "Wrote full-access config to $configFile")
+    }
+
+    /**
+     * Get the local non-loopback IP address of the Android device.
+     * Returns null if no suitable address is found.
+     */
+    fun getLocalIpAddress(): String? {
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                if (networkInterface.isLoopback || !networkInterface.isUp) continue
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                        return addr.hostAddress
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get local IP: ${e.message}")
+        }
+        return null
     }
 
     private fun buildEnvironment(

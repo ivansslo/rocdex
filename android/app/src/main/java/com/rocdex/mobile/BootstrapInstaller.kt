@@ -1,4 +1,4 @@
-package com.codex.mobile
+package com.rocdex.mobile
 
 import android.content.Context
 import android.os.Build
@@ -209,7 +209,7 @@ object BootstrapInstaller {
             sourcesList.writeText(
                 content
                     .replace("https://", "http://")
-                    .replace("com.termux", "com.codex.mobile")
+                    .replace("com.termux", "com.rocdex.mobile")
             )
         }
 
