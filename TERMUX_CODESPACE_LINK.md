@@ -86,3 +86,44 @@ Lalu buka di browser Android:
 ```text
 http://127.0.0.1:5173
 ```
+
+## Buat Codespace baru dari Termux
+
+Download script pembuat Codespace baru:
+
+```bash
+curl -L -o termux-create-new-codespace.sh https://raw.githubusercontent.com/ivansslo/codex-web/main/termux-create-new-codespace.sh
+chmod +x termux-create-new-codespace.sh
+./termux-create-new-codespace.sh
+```
+
+Default script membuat Codespace baru untuk repo `ivansslo/codex-web` dengan machine:
+
+```text
+standardLinux32gb = 4 cores, 16 GB RAM, 32 GB storage
+```
+
+Setelah selesai, script menyimpan nama Codespace baru di:
+
+```text
+~/.codex-web-codespace
+```
+
+Pakai config tersebut untuk login/forward:
+
+```bash
+source ~/.codex-web-codespace
+gh codespace ssh -c "$CODESPACE_NAME"
+```
+
+Kalau ingin nama custom:
+
+```bash
+DISPLAY_NAME=codex-web-baru ./termux-create-new-codespace.sh
+```
+
+Kalau ingin machine lebih kecil:
+
+```bash
+MACHINE=basicLinux32gb ./termux-create-new-codespace.sh
+```
