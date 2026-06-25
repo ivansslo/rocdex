@@ -26,6 +26,7 @@ import {
   FREE_MODE_STATE_FILE,
   OPENCODE_ZEN_DEFAULT_MODEL,
   OPENCODE_ZEN_PROVIDER_ID,
+  OPENAI_DEFAULT_MODEL,
   createDefaultOpenCodeZenFreeModeState,
   filterOpenCodeZenModelsForAuthState,
   getFreeModeConfigArgs,
@@ -37,6 +38,7 @@ import {
   type FreeModeState,
 } from './freeMode.js'
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
+import { handleOpenAiProxyRequest } from './openAiProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { ThreadTerminalManager } from './terminalManager.js'
@@ -1260,6 +1262,24 @@ async function fetchCustomEndpointDefaultModel(baseUrl: string, apiKey: string):
   }
 }
 
+async function fetchCustomEndpointModelIds(baseUrl: string, apiKey: string | null | undefined): Promise<string[]> {
+  const normalizedBaseUrl = baseUrl.trim()
+  if (!normalizedBaseUrl) return []
+
+  try {
+    const modelsUrl = buildProviderModelsUrl(normalizedBaseUrl, null)
+    const headers: Record<string, string> = apiKey?.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : {}
+    const response = await fetch(modelsUrl, {
+      headers,
+      signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
+    })
+    if (!response.ok) return []
+    return normalizeProviderModelsData(await response.json() as unknown)
+  } catch {
+    return []
+  }
+}
+
 async function fetchOpenCodeZenModelIds(apiKey: string | null | undefined): Promise<string[]> {
   const headers: Record<string, string> = {}
   if (apiKey && apiKey !== 'dummy') {
@@ -1271,6 +1291,42 @@ async function fetchOpenCodeZenModelIds(apiKey: string | null | undefined): Prom
   })
   if (!response.ok) return []
   return normalizeProviderModelsData(await response.json() as unknown)
+}
+
+const OPENAI_FALLBACK_MODELS = [OPENAI_DEFAULT_MODEL, 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1']
+
+function isOpenAiChatModelId(modelId: string): boolean {
+  const id = modelId.trim().toLowerCase()
+  if (!id) return false
+  if (id.includes('embedding') || id.includes('moderation')) return false
+  if (id.startsWith('tts-') || id.startsWith('whisper-') || id.startsWith('dall-e-')) return false
+  if (id.includes('realtime') || id.includes('audio') || id.includes('image')) return false
+  return id.startsWith('gpt-') || id.startsWith('o') || id.startsWith('chatgpt-')
+}
+
+function sortOpenAiModelIds(modelIds: string[]): string[] {
+  const unique = modelIds.filter((id, index) => modelIds.indexOf(id) === index)
+  return unique.sort((a, b) => {
+    if (a === OPENAI_DEFAULT_MODEL) return -1
+    if (b === OPENAI_DEFAULT_MODEL) return 1
+    return a.localeCompare(b)
+  })
+}
+
+async function fetchOpenAiModelIds(apiKey: string | null | undefined): Promise<string[]> {
+  const headers: Record<string, string> = {}
+  if (apiKey?.trim()) {
+    headers.Authorization = `Bearer ${apiKey.trim()}`
+  }
+  const response = await fetch('https://api.openai.com/v1/models', {
+    headers,
+    signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) return []
+  return sortOpenAiModelIds(
+    normalizeProviderModelsData(await response.json() as unknown)
+      .filter(isOpenAiChatModelId),
+  )
 }
 
 function sortOpenCodeZenModelIds(modelIds: string[]): string[] {
@@ -1397,12 +1453,19 @@ async function readProviderModelIdsForProvider(
   providerId: string,
 ): Promise<ProviderModelsResponse> {
   const normalizedProviderId = providerId.trim().toLowerCase().replace(/_/g, '-')
-  if (!normalizedProviderId || normalizedProviderId === 'codex' || normalizedProviderId === 'openai') {
+  const providerAlias = normalizedProviderId === 'openai-chat'
+    ? 'openai'
+    : normalizedProviderId === 'custom-endpoint'
+      ? 'custom'
+      : normalizedProviderId === 'openrouter-free'
+        ? 'openrouter'
+        : normalizedProviderId
+  if (!providerAlias || providerAlias === 'codex') {
     return { data: [], providerId: '', source: 'provider' }
   }
 
   const fmState = ensureDefaultFreeModeStateForMissingAuthSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-  if (normalizedProviderId === 'opencode-zen') {
+  if (providerAlias === 'opencode-zen') {
     try {
       const modelIds = filterOpenCodeZenModelsForAuthState(
         sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState?.provider === 'opencode-zen' ? fmState.apiKey : null)),
@@ -1421,7 +1484,29 @@ async function readProviderModelIdsForProvider(
     }
   }
 
-  if (normalizedProviderId === 'openrouter-free' || normalizedProviderId === 'openrouter') {
+  if (providerAlias === 'openai') {
+    const apiKey = fmState?.provider === 'openai' ? fmState.apiKey : null
+    const modelIds = await fetchOpenAiModelIds(apiKey)
+    return {
+      data: modelIds.length > 0 ? modelIds : OPENAI_FALLBACK_MODELS,
+      providerId: 'openai',
+      source: 'provider',
+    }
+  }
+
+  if (providerAlias === 'custom') {
+    if (fmState?.provider === 'custom' && fmState.customBaseUrl) {
+      const modelIds = await fetchCustomEndpointModelIds(fmState.customBaseUrl, fmState.apiKey)
+      const currentModel = fmState.model?.trim() ?? ''
+      const orderedIds = currentModel && modelIds.includes(currentModel)
+        ? [currentModel, ...modelIds.filter((id) => id !== currentModel)]
+        : modelIds
+      return { data: orderedIds, providerId: 'custom', source: 'provider' }
+    }
+    return { data: [], providerId: 'custom', source: 'provider' }
+  }
+
+  if (providerAlias === 'openrouter') {
     return {
       data: await getFreeModels(),
       providerId: 'openrouter-free',
@@ -6101,6 +6186,19 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (url.pathname === '/codex-api/openai-proxy/v1/responses' && req.method === 'POST') {
+        const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
+        let bearerToken = ''
+        let wireApi: 'responses' | 'chat' = 'chat'
+        try {
+          const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
+          bearerToken = state?.provider === 'openai' ? (state.apiKey ?? '') : ''
+          wireApi = state?.wireApi === 'responses' ? 'responses' : 'chat'
+        } catch { /* use empty */ }
+        handleOpenAiProxyRequest(req, res, bearerToken, wireApi)
+        return
+      }
+
       if (url.pathname === '/codex-api/custom-proxy/v1/responses' && req.method === 'POST') {
         const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
         let bearerToken = ''
@@ -6217,6 +6315,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
                 ]
               }
               wireApi = 'responses'
+            } else if (state.provider === 'openai') {
+              const openAiModels = await fetchOpenAiModelIds(state.apiKey)
+              models = openAiModels.length > 0 ? openAiModels : OPENAI_FALLBACK_MODELS
+              currentModel = state.enabled ? (state.model?.trim() || OPENAI_DEFAULT_MODEL) : null
+              wireApi = state.wireApi === 'responses' ? 'responses' : 'chat'
             } else {
               refreshFreeModelsInBackground()
             }
@@ -6301,9 +6404,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             const wireApi = body?.wireApi === 'chat' ? 'chat' as const : 'responses' as const
             const providerType = body?.provider === 'opencode-zen'
               ? 'opencode-zen' as const
-              : body?.provider === 'openrouter'
-                ? 'openrouter' as const
-                : 'custom' as const
+              : body?.provider === 'openai'
+                ? 'openai' as const
+                : body?.provider === 'openrouter'
+                  ? 'openrouter' as const
+                  : 'custom' as const
             if (providerType === 'custom' && !baseUrl) {
               setJson(res, 400, { error: 'baseUrl is required' })
               return
@@ -6320,9 +6425,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             const currentModel = (current.model ?? '').trim()
             const resolvedModel = providerType === 'openrouter'
               ? (currentModel.includes('/') ? currentModel : FREE_MODE_DEFAULT_MODEL)
-              : providerType === 'custom'
-                ? await fetchCustomEndpointDefaultModel(baseUrl, resolvedKey)
-                : OPENCODE_ZEN_DEFAULT_MODEL
+              : providerType === 'openai'
+                ? (currentModel && isOpenAiChatModelId(currentModel) ? currentModel : OPENAI_DEFAULT_MODEL)
+                : providerType === 'custom'
+                  ? await fetchCustomEndpointDefaultModel(baseUrl, resolvedKey)
+                  : OPENCODE_ZEN_DEFAULT_MODEL
             const state: FreeModeState = {
               enabled: true,
               apiKey: resolvedKey,
@@ -6970,28 +7077,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
               setJson(res, 200, { data: ['big-pickle', 'minimax-m2.5-free', 'nemotron-3-super-free', 'trinity-large-preview-free'], exclusive: true, source: 'opencode-zen' })
               return
             }
+            if (fmState.provider === 'openai') {
+              const modelIds = await fetchOpenAiModelIds(fmState.apiKey)
+              setJson(res, 200, {
+                data: modelIds.length > 0 ? modelIds : OPENAI_FALLBACK_MODELS,
+                exclusive: true,
+                source: 'openai',
+              })
+              return
+            }
             if (fmState.provider === 'custom' && fmState.customBaseUrl) {
-              try {
-                const modelsUrl = fmState.customBaseUrl.replace(/\/+$/, '') + '/models'
-                const headers: Record<string, string> = {}
-                if (fmState.apiKey && fmState.apiKey !== 'dummy') {
-                  headers['Authorization'] = `Bearer ${fmState.apiKey}`
-                }
-                const resp = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(8000) })
-                if (resp.ok) {
-                  const json = await resp.json() as unknown
-                  const ids = normalizeProviderModelsData(json)
-                  const currentModel = fmState.model?.trim() ?? ''
-                  const orderedIds = currentModel && ids.includes(currentModel)
-                    ? [currentModel, ...ids.filter((id) => id !== currentModel)]
-                    : ids
-                  setJson(res, 200, { data: orderedIds, exclusive: true, source: 'custom' })
-                  return
-                }
-              } catch {
-                // Custom endpoint model fetch failed — return empty list
-              }
-              setJson(res, 200, { data: [], exclusive: true, source: 'custom' })
+              const ids = await fetchCustomEndpointModelIds(fmState.customBaseUrl, fmState.apiKey)
+              const currentModel = fmState.model?.trim() ?? ''
+              const orderedIds = currentModel && ids.includes(currentModel)
+                ? [currentModel, ...ids.filter((id) => id !== currentModel)]
+                : ids
+              setJson(res, 200, { data: orderedIds, exclusive: true, source: 'custom' })
               return
             }
             const freeModels = await getFreeModels()

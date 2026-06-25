@@ -213,7 +213,10 @@ function pruneThreadContextStateMap<T>(
 
 function normalizeProviderContextId(providerId: string): string {
   const normalized = providerId.trim().toLowerCase().replace(/_/g, '-')
-  if (!normalized || normalized === 'openai') return 'codex'
+  if (!normalized) return 'codex'
+  if (normalized === 'openai-chat') return 'openai'
+  if (normalized === 'custom-endpoint') return 'custom'
+  if (normalized === 'openrouter-free') return 'openrouter'
   return normalized
 }
 

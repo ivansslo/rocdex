@@ -152,10 +152,14 @@ export const FREE_MODE_STATE_FILE = 'webui-custom-providers.json'
 
 export const CUSTOM_PROVIDER_ID = 'custom-endpoint'
 export const OPENCODE_ZEN_PROVIDER_ID = 'opencode-zen'
+export const OPENAI_PROVIDER_ID = 'openai'
 const CUSTOM_RUNTIME_PROVIDER_ID = 'custom_endpoint'
 const OPENCODE_ZEN_RUNTIME_PROVIDER_ID = 'opencode_zen'
+const OPENAI_RUNTIME_PROVIDER_ID = 'openai_chat'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const OPENCODE_ZEN_DEFAULT_MODEL = 'big-pickle'
+export const OPENAI_BASE_URL = 'https://api.openai.com/v1'
+export const OPENAI_DEFAULT_MODEL = 'gpt-4o-mini'
 
 export type WireApi = 'responses' | 'chat'
 
@@ -164,7 +168,7 @@ export interface FreeModeState {
   apiKey: string | null
   model: string
   customKey?: boolean
-  provider?: 'openrouter' | 'custom' | 'opencode-zen'
+  provider?: 'openrouter' | 'custom' | 'opencode-zen' | 'openai'
   customBaseUrl?: string
   wireApi?: WireApi
   providerKeys?: Record<string, string>
@@ -231,6 +235,10 @@ export function getFreeModeEnvVars(state: FreeModeState): Record<string, string>
     return { OPENCODE_ZEN_API_KEY: state.apiKey }
   }
 
+  if (state.provider === 'openai' && state.apiKey) {
+    return { OPENAI_API_KEY: state.apiKey }
+  }
+
   if (state.provider === 'custom' && state.customBaseUrl && state.apiKey) {
     return { CUSTOM_ENDPOINT_API_KEY: state.apiKey }
   }
@@ -264,6 +272,23 @@ export function getProviderCompatibilityConfigArgs(serverPort?: number): string[
   return getOpenCodeZenProviderConfigArgs(serverPort)
 }
 
+function getOpenAiProviderConfigArgs(serverPort?: number): string[] {
+  const providerConfigKey = `model_providers.${OPENAI_RUNTIME_PROVIDER_ID}`
+  const baseUrl = serverPort
+    ? `http://127.0.0.1:${serverPort}/codex-api/openai-proxy/v1`
+    : OPENAI_BASE_URL
+  const authArgs: string[] = serverPort
+    ? ['-c', `${providerConfigKey}.experimental_bearer_token="openai-proxy-token"`]
+    : ['-c', `${providerConfigKey}.env_key="OPENAI_API_KEY"`]
+
+  return [
+    '-c', `${providerConfigKey}.name="OpenAI"`,
+    '-c', `${providerConfigKey}.base_url="${baseUrl}"`,
+    '-c', `${providerConfigKey}.wire_api="responses"`,
+    ...authArgs,
+  ]
+}
+
 export function getFreeModeConfigArgs(state: FreeModeState, serverPort?: number): string[] {
   if (!state.enabled) return []
 
@@ -273,6 +298,15 @@ export function getFreeModeConfigArgs(state: FreeModeState, serverPort?: number)
       '-c', `model="${model}"`,
       '-c', `model_provider="${OPENCODE_ZEN_RUNTIME_PROVIDER_ID}"`,
       ...getOpenCodeZenProviderConfigArgs(serverPort),
+    ]
+  }
+
+  if (state.provider === 'openai') {
+    const model = state.model?.trim() || OPENAI_DEFAULT_MODEL
+    return [
+      '-c', `model="${model}"`,
+      '-c', `model_provider="${OPENAI_RUNTIME_PROVIDER_ID}"`,
+      ...getOpenAiProviderConfigArgs(serverPort),
     ]
   }
 
